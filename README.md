@@ -8,7 +8,10 @@ Mediante el desarrollo del presente informe, se muestra la elavoracion de la pr�
 
 ## ✔️ANALISIS Y RESULTADOS    
 ## Captura de la Señal EMG:    
-Para la adquisición de la señal electromiográfica (EMG), se diseñó e implementó una interfaz gráfica en Python utilizando la biblioteca PyQt6 en combinación con PyDAQmx para la comunicación con la tarjeta DAQ. Esta interfaz nos permite la visualización en tiempo real de la señal EMG y su almacenamiento para su porterior análisis. A continuación, mostraremos cada componente que utilizamos para el desarrollo del codigo y ña captura de ya mencionada señal:
+Para la adquisición de la señal electromiográfica (EMG), se diseñó e implementó una interfaz gráfica en Python utilizando la biblioteca PyQt6 en combinación con PyDAQmx para la comunicación con la tarjeta DAQ. Esta interfaz nos permite la visualización en tiempo real de la señal EMG y su almacenamiento para su porterior análisis. A continuación, mostraremos cada componente que utilizamos para el desarrollo del codigo y la captura de ya mencionada señal:  
+
+![WhatsApp Image 2025-04-04 at 1 11 24 PM](https://github.com/user-attachments/assets/992049ed-3ebd-4fae-8bcd-61a36a3bd5b8)   
+  |*Figura 1: Medición de la Fatiga muscular en tiempo real.*| 
 ___________________________________  
 El código comienza con la importación de librerías que utilizaremos para ciertos parametros en especifico como lo siguiente:
 Se incluyen **sys**, **numpy** y **time** para el manejo del sistema, operaciones numéricas y la temporización. **ctypes** para gestionar tipos de datos C necesarios en la interfaz **DAQ**, y **csv** para el almacenamiento de los datos adquiridos. Desde **PyQt6**, lo que queremos es la importación de los componentes gráficos para poder construir la interfaz, y desde **pyqtgraph**, un módulo para las gráficas en tiempo real. Por ultimo tenemos la libreria **PyDAQmx**, pues esta se emplea para interactuar con el hardware de la adquisición de datos, y **scipy.signal** proporciona herramientas para el diseño y aplicación de los filtros digitales.
@@ -85,17 +88,127 @@ Y el **read_data()**, se encarga de leer los datos recientes de la señal EMG de
         return filter_signal(data)  
  ```
 **Interfaz Grafica: (EMGPlot)**  
-Esta clase lo que hace es que define la ventana gráfica de la aplicación, pues en esta parte a continuacion, se configura un **PlotWidget** de pyqtgraph con fondo blanco, ejes etiquetados y una rejilla para facilitar la lectura de los datos mediante la captura de la señal. Tenemos tambie, la serie de datos (self.series) que es en donde se mostrará la señal EMG en tiempo real, realizando igual la inicialización de un buffer (self.data) que tiene como proposito almacenar los últimos 10 segundos de señal, junto con el temporizador (QTimer) llama periódicamente a update_plot() para actualizar la gráfica. 
-Aquí es donde realmente podemos evidenciar la lectura como grafica la señal EMG:
-
-
-<img src="![WhatsApp Image 2025-04-04 at 1 11 24 PM](https://github.com/user-attachments/assets/d7475179-d754-4782-882a-fe4698398ef0)" width="350" height="400">   
-  |*Figura 1: Medición de la Fatiga muscular en tiempo real.*|  
+Esta clase lo que hace es que define la ventana gráfica de la aplicación, pues en esta parte a continuacion, se configura un **PlotWidget** de pyqtgraph con fondo blanco, ejes etiquetados y una rejilla para facilitar la lectura de los datos mediante la captura de la señal. Tenemos tambie, la serie de datos (self.series) que es en donde se mostrará la señal EMG en tiempo real, realizando igual la inicialización de un buffer (self.data) que tiene como proposito almacenar los últimos 10 segundos de señal, junto con el temporizador (QTimer) llama periódicamente a update_plot() para actualizar la gráfica.   
+Aquí es donde realmente podemos evidenciar la lectura como grafica la señal EMG:  
 
 ```python
+class EMGPlot(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("EMG en Tiempo Real")
+        self.setGeometry(100, 100, 800, 500)
 
+        self.graphWidget = PlotWidget()
+        self.graphWidget.setBackground("w")
+        self.graphWidget.setTitle("Señal EMG")
+        self.graphWidget.setLabel("left", "Voltaje (V)")
+        self.graphWidget.setLabel("bottom", "Tiempo (ms)")
+        self.graphWidget.showGrid(x=True, y=True)
+        self.graphWidget.setYRange(*FIXED_YLIM)
+
+        self.series = self.graphWidget.plot([], [], pen=mkPen(color='r', width=2))
+        self.data = np.zeros(DATA_BUFFER_SIZE)
+        self.timestamps = np.linspace(-10, 0, DATA_BUFFER_SIZE)
+        self.start_time = time.time()
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.graphWidget)
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+        try:
+            self.task = EMGAcquisition()
+        except RuntimeError as e:
+            QMessageBox.critical(self, "Error", str(e))
+            sys.exit(1)
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_plot)
+        self.timer.start(UPDATE_INTERVAL)
+ ```
+![WhatsApp Image 2025-03-29 at 5 07 54 PM](https://github.com/user-attachments/assets/76c51a59-d203-4ed1-8da8-b6249cf1d1ed)  
+___________________________________    
+![WhatsApp Image 2025-03-29 at 5 08 01 PM (1)](https://github.com/user-attachments/assets/982fdbf0-611f-4272-a409-a15383a80601)  
+___________________________________  
+![WhatsApp Image 2025-03-29 at 5 08 10 PM (1)](https://github.com/user-attachments/assets/13699e88-329d-4ef4-97a4-e3ebca0f2e58)    
+___________________________________  
+
+
+A continuación, tenemos el metodo que es llamado periódicamente por el temporizador y se encarga de actualizar la gráfica con los nuevos datos leídos desde la DAQ. Tambien se calculan los nuevos tiempos, actualiza el buffer circular y redibuja la señal. Además, llama a save_data() para guardar los datos continuamente. Aquí es donde ocurre la visualización dinámica en tiempo real de la EMG, actualizándose cada 20 ms.
+
+```python
+    def update_plot(self):
+        new_data = self.task.read_data()
+        current_time = time.time() - self.start_time
+        new_timestamps = np.linspace(current_time - len(new_data) / FS, current_time, len(new_data))
+
+        self.data = np.roll(self.data, -len(new_data))
+        self.data[-len(new_data):] = new_data
+        self.timestamps = np.roll(self.timestamps, -len(new_data))
+        self.timestamps[-len(new_data):] = new_timestamps
+
+        self.series.setData(self.timestamps, self.data)
+        self.save_data()
+ ```  
+![WhatsApp Image 2025-03-29 at 3 32 37 PM](https://github.com/user-attachments/assets/2f92c8d9-fb6a-4ce2-9b65-45f0baed4bc9)    
+  |*Figura 2: Señal digitalizada (visualización dinamica).*| 
+
+**☝️ ANALISIS- GRAFICO: ☝️**   
+Con conocimiento previo del lenguaje de programación de python, se tienen en cuenta librearias como: sys, numpy, ctypes, csv, time, PyQt6.QtWidgets, PyQt6.QtCore, pyqtgraph, PyDAQmx, scipy.signal par el desarollo matemático y gráfico de la señal, luego de esto, teniendo en cuenta criterios teóricos que la frecuencia de una señal emg va hasta 500Hz. Establecimos la frecuencia de muestreo de 1000Hz cumpliendo el teorema de Nyquist, con el fin de obtener una señal mas límpia, aplicamos filtros digitales:   
+▪️ 1. Filtro pasa altas en el cual establecimos una frecuencia de corte de 10Hz con el fin de eliminar ruido por movimiento.  
+▪️ 2. Filtro pasa bajas estableciando frecuencia de corte de 500Hz  permitiendonos le paso de frecuencias correspondientes a la actividad muscular.    
+Luego, se adquiere la señal por medio un sensor AD282, fue enviada a el ADQ6002 lo cual nos permite convertir la señal analógica a digital y enviarla por comunicación de manera digital permitiéndonos almacenarla en un buffer en donde se le aplican los respectivos filtros anteriormente mencionados, luego de esto se pasa a programar la gráfica de la señal, estableciendo eje de amplitud y tiempo, se programa para que sea mostrada en tiempo real con ayuda de self.timer.timeout.connect(self.update_plot) estamos generando una actualización de grafica cada 20ms haciendo que la grafica tenga un mejor flujo de señal, luego de este con ayuda de DATA_FILE = "emg_data.csv"  estamos generando un archivo csv con los datos de la señal que establecimos por un tiempo de 10 segundos, permitiéndonos llevar a cabo un estudio mas detallado de la señal. En la imagen se puede observar la señal EMG obtenida.   
+___________________________________  
+Ahora bien, dentro de la clase EMGPlot, se encuentra definida la función save_data(), encargada de guardar de manera continua los datos procesados de la señal EMG en un archivo .csv (Que nos enviara a un archivo en excel con todos los datos recolectados durante el tiempo de muestreo de la señal deseado). Esta función se ejecuta automáticamente cada vez que se actualiza la gráfica de la señal, es decir, aproximadamente cada 20 ml/seg. Su estructura interna comienza abriendo el archivo definido en la variable DATA_FILE (el cual es "emg_data.csv")=(# Archivo de almacenamiento) lo que significa que cada ejecución sobrescribe el contenido anterior del archivo, guardando únicamente los datos más recientes.
+
+Luego, se utiliza la biblioteca csv para crear un escritor de archivos que primero añade una fila de encabezados: "Tiempo (s)" y "Voltaje (V)", que son los dos vectores generados durante la adquisición y el procesamiento de la señal. Posteriormente, mediante un ciclo for, se "procesan" de forma paralela los vectores self.timestamps (que contienen los tiempos en segundos) y self.data (que contiene los valores de voltaje filtrado), y cada par de valores se guarda en una nueva fila del archivo en el documento de **Excel**. De esta forma, cada fila del archivo representa una muestra puntual de la señal EMG filtrada en el tiempo, lo que nos permite un análisis más detallado sobre el comportamiento de nuestra señal adquirida.
+
+```python
+    def save_data(self):
+        with open(DATA_FILE, "w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Tiempo (s)", "Voltaje (V)"])
+            for t, v in zip(self.timestamps, self.data):
+                writer.writerow([t, v])
  ```
 
+Para Finalizar, tenemos **closeEvent(self, event)** , que lo que hace es que asegura que cuando se cierra la ventana, se detiene correctamente el temporizador y la tarea de la DAQ, siendo asi una parte impoortante para poder evitar errores al cerrar la aplicación y el ultimo es el punto de entrada principal del programa ya que crea la aplicación Qt, inicializa la interfaz de usuario y lanza el bucle de eventos que teniamos al inicio del programa. A partir de aquí, todo el proceso de adquisición y visualización de la señal EMG comienza y por ello es efectiva la complilación de nuestro codigo.
+
+```python
+    def closeEvent(self, event):
+        self.timer.stop()
+        self.task.StopTask()
+        self.task.ClearTask()
+        event.accept()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = EMGPlot()
+    window.show()
+    sys.exit(app.exec())
+ ```
+
+## Conclusión: ⚙️ 
+
+
+___________________________________     
+
+## Licencia 
+Open Data Commons Attribution License v1.0
+
+## Temas:
+# 📡 Procesamiento de Señales  
+- 
+
+# 🔊 Análisis en Frecuencia  
+- 
+- 
+
+# 🖥️ Código e Implementación  
+- Explicación del código  
+- Ejecución y ejemplos  
+- Mejoras y optimización  
 
               
 

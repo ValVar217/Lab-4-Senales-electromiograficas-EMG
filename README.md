@@ -2,7 +2,7 @@
 <h2 align="center"> 💥 Fatiga Muscular 💪 </h2>   
 
 # INTRODUCCIÓN    
-Mediante el desarrollo del presente informe, se muestra la elavoracion de la práctica de laboratorio enfocada en el procesamiento de señales electromiográficas (EMG) con el objetivo de poder detectar la fatiga muscular mediante el análisis espectral. La señal EMG, que representa la actividad eléctrica de los músculos, pues esta durante el laboratorio fue adquirida utilizando electrodos de superficie conectados a un sistema de adquisición de datos (DAQ), durante una contracción muscular sostenida hasta la aparición de fatiga. Posteriormente, la señal que fue previamente capturada se proceso aplicando filtros pasa altas y pasa bajas para eliminar componentes de ruido, y segmentada mediante técnicas de aventanamiento, utilizando específicamente las ventanas de Hanning y Hamming. Añadiendo que a cada segmento se le aplicó la Transformada Rápida de Fourier (FFT) para lograr obtener el espectro de frecuencias, lo que permitió calcular estadísticos característicos como la frecuencia mediana, empleada como indicador clave del nivel de fatiga muscular. El propósito de este laboratorio es que se desarrollen competencias para el optimo análisis de señales EMG desde la captura de estas hasta su interpretación espectral, todo esto para evaluar la respuesta muscular en tiempo real.
+Mediante el desarrollo del presente informe, se muestra la elavoracion de la práctica de laboratorio enfocada en el procesamiento de señales electromiográficas (EMG) con el objetivo de poder detectar la fatiga muscular mediante el análisis espectral. La señal EMG, que representa la actividad eléctrica de los músculos, pues esta durante el laboratorio fue adquirida utilizando electrodos de superficie conectados a un sistema de adquisición de datos (DAQ) y por medio de un sensor de ECG (D8232), durante una contracción muscular sostenida hasta la aparición de fatiga. Posteriormente, la señal que fue previamente capturada se proceso aplicando filtros pasa altas y pasa bajas para eliminar componentes de ruido, y segmentada mediante técnicas de aventanamiento, utilizando específicamente las ventanas de Hanning y Hamming. Añadiendo que a cada segmento se le aplicó la Transformada Rápida de Fourier (FFT) para lograr obtener el espectro de frecuencias, lo que permitió calcular estadísticos característicos como la frecuencia mediana, empleada como indicador clave del nivel de fatiga muscular. El propósito de este laboratorio es que se desarrollen competencias para el optimo análisis de señales EMG desde la captura de estas hasta su interpretación espectral, todo esto para evaluar la respuesta muscular en tiempo real.
 
 <h1 align="center"> 📄 GUIA DE USUARIO 📄 </h1>    
 
@@ -353,8 +353,19 @@ Por ende, **se rechaza la hipótesis nula**, porque la prueba estadística (el t
 
 _________________________________
 
-## Conclusión: ⚙️ 
+## CONCLUSIONES: ⚙️   
 
+**Adquisición de la Señal EMG:**  
+La correcta adquisición de la señal EMG fue fundamental para llevar a cabo un análisis fiable del comportamiento muscular durante una contracción sostenida hasta la fatiga. Al solicitarle al sujeto que realizara una contracción continua, se logró captar la dinámica completa del proceso de fatiga. La señal fue registrada en tiempo real, lo cual no solo permitió visualizar las distintas fases de activación muscular, sino también segmentar las contracciones más notorias. Esto puede observarse en el primer gráfico presentado, donde se distingue claramente el patrón de las contracciones musculares gracias a la representación de la señal filtrada y suavizada. La calidad de esta adquisición fue clave para poder aplicar un procesamiento espectral preciso en los pasos posteriores.
+
+**Filtrado de la Señal:**  
+El proceso de filtrado jugó un papel importante en la mejora de la calidad de la señal EMG ya que se aplicó un filtro pasa altas para eliminar los componentes de baja frecuencia (<10 Hz) asociados principalmente a movimientos involuntarios, ruido de línea base o artefactos generados por el desplazamiento del electrodo, luego se utilizó un filtro pasa bajas con corte en 500 Hz para suprimir interferencias electromagnéticas de alta frecuencia no deseadas. Esta doble estrategia permitió obtener una señal más limpia, como se evidencia en el gráfico de comparación donde la señal filtrada mantiene la forma de las contracciones pero con una menor cantidad de ruido de fondo. Además, la señal suavizada, generada con un filtro de media móvil, ayudó a visualizar mejor la envolvente de cada contracción, destacando la progresión temporal del esfuerzo muscular y esto favoreció una delimitación más clara de las ventanas que luego se analizarían espectralmente.
+
+**Aventanamiento:**  
+Se dividió la señal en ventanas de tiempo sobre las cuales se aplicó una ventana de Hanning, que permitió minimizar los efectos de discontinuidades en los bordes de cada segmento. Esto fue clave para obtener una representación más realista del contenido espectral de la señal. Mediante la aplicación de la FFT (Transformada Rápida de Fourier) en cada ventana, se identificaron las seis contracciones más representativas, permitiendo extraer sus respectivas frecuencias medias y medianas, por lo que estos datos se organizaron en una tabla, donde se aprecia una variación progresiva en las frecuencias, reflejo directo del comportamiento muscular ante el esfuerzo sostenido como por ejemplo, la contracción #4 alcanzó la frecuencia media más alta (54.27 Hz), mientras que la primera (1) inició con una más baja (37.48 Hz).
+
+**Análisis Espectral:**  
+El análisis espectral nos reveló un comportamiento característico asociado a la aparición de fatiga muscular ya que inicialmente se observó un aumento en la frecuencia media durante las primeras contracciones, lo cual puede referirse a un mayor agrupacion de unidades motoras rápidas, pero a pesar ello, con respecto las últimas contracciones, la frecuencia tendió a estabilizarse o incluso disminuir, lo cual es un indicador claro del inicio de la fatiga, y esto se ve reflejado no solo en los valores de media y mediana, sino también en la gráfica de la prueba de hipótesis t, ya que en este gráfico el valor t calculado (-2.2293) cae dentro de la región de rechazo definida por los valores críticos (±1.9647), y asi de esta manera confirmando (con evidencia estadística) que existe una diferencia significativa entre la frecuencia de la primera y última contracción, por lo que esto valida la hipótesis alternativa y demuestra que el músculo presentó un cambio fisiológico real como respuesta a la contracción sostenida, lo cual es consistente sobre fatiga muscular.
 
 ___________________________________     
 
@@ -363,16 +374,19 @@ Open Data Commons Attribution License v1.0
 
 ## Temas:
 # 📡 Procesamiento de Señales  
-- 
+- Adquisición de la señal EMG en tiempo real durante una contracción muscular prolongada.  
+- Aplicación de filtros pasa altas y pasa bajas para eliminar ruido e interferencias no deseadas.  
+- Segmentación de la señal mediante aventanamiento con ventana de Hanning para mejorar el análisis espectral.  
 
 # 🔊 Análisis en Frecuencia  
-- 
-- 
+- Aplicación de la Transformada Rápida de Fourier (FFT) para obtener el espectro de frecuencia de cada contracción.  
+- Cálculo de la frecuencia media y mediana para evaluar la evolución de la fatiga muscular.  
+- Prueba de hipótesis t para comparar la primera y última contracción, determinando si la diferencia es estadísticamente significativa.  
 
 # 🖥️ Código e Implementación  
-- Explicación del código  
-- Ejecución y ejemplos  
-- Mejoras y optimización  
+- Explicación del código utilizado para la adquisición, filtrado y análisis de la señal EMG.
+- Implementación de gráficos para visualizar la evolución de la frecuencia en el tiempo y la distribución de la prueba t.
+- Mejoras en la optimización del código, asegurando una correcta segmentación de los datos y reduciendo errores en el análisis estadístico.
 
               
 

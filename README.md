@@ -264,7 +264,21 @@ Para este test, se quiere comparar la media de frecuencia de la primera contracc
 🟣Se extraen las medias, desviaciones estándar y tamaños de muestra (duraciones de las contracciones) de la primera y última contracción detectadas.   
 🟣Se asegura que las desviaciones estándar no sean cero (lo que evitaría una división por cero) y se calcula el estadístico t para dos muestras independientes.  
 🟣También se estima el valor crítico t_critical correspondiente a un nivel de significancia α = 0.05, utilizando la distribución t de Student con los grados de libertad más bajos entre ambas muestras.  
-🟣Se imprime la comparación: si el valor absoluto del estadístico t calculado supera el t crítico, se concluye que hay una diferencia estadísticamente significativa entre ambas frecuencias medias (se rechaza la hipótesis nula H0); de lo contrario, no hay evidencia suficiente para afirmar que difieren significativamente.  
+🟣Se imprime la comparación: si el valor absoluto del estadístico t calculado supera el t crítico, se concluye que hay una diferencia estadísticamente significativa entre ambas frecuencias medias (se rechaza la hipótesis nula H0); de lo contrario, no hay evidencia suficiente para afirmar que difieren significativamente.
+
+Claramente se tienen en cuenta estos parametros/ecuaciones para el desarrollo de los procedimientos matematicos:    
+
+![image](https://github.com/user-attachments/assets/e0569be2-8081-41b3-9324-8915f7bd33a4)      
+|*Ecu 3: Ecuacion de Hipotesis Nula.*|       
+
+![image](https://github.com/user-attachments/assets/61fe09f2-b9cf-4216-8c27-1c03fb71bad0)      
+|*Ecu 4: Ecuacion de Hipotesis Aternativa.*|     
+
+![image](https://github.com/user-attachments/assets/12cd5df0-0e99-4617-a63a-aea14569f2fb)        
+|*Ecu 5: Nivel de significancia.*|      
+
+![image](https://github.com/user-attachments/assets/b48b8049-24ad-489c-a471-ec60b02f698c)      
+|*Ecu 6: Ecuacion de Test t (escogiendo el estadistico caracteristico).*|  
 
 ```python  
 # Test de hipótesis (usando las variables calculadas en el segundo código)
@@ -336,7 +350,7 @@ else:
 ![WhatsApp Image 2025-04-04 at 8 27 20 PM](https://github.com/user-attachments/assets/88a11422-24ca-4176-aa40-3d05465d30cd)    
   |*Figura 9: Grafico = Prueba de hipotesis de la media de frecuencia.*|   
 
-La gráfica nos muestra la **distribución t** que fue utilizada en el test de hipótesis para comparar la media de frecuencia entre la primera y la última contracción muscular, y por los resultados obtenidos mediante el text de Hipotesis, Se rechaza la Hipotesis.   
+La gráfica nos muestra la **distribución t** que fue utilizada en el test de hipótesis para comparar la media de frecuencia entre la primera y la última contracción muscular, y por los resultados obtenidos mediante el text de Hipotesis, Se rechaza la Hipotesis.      
 
 **POR QUE SE RECHAZA LA HIPOTESIS:**                                                     
 Se rechaza la hipótesis nula en el contexto de la fatiga muscular ya que la diferencia en las Medias de Frecuencia podemos observar una diferencia entre la media de la frecuencia de la primera contracción (37.48 Hz) y la media de la frecuencia de la última contracción (40.50 Hz). La última contracción tiene una media de frecuencia ligeramente mayor.  

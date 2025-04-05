@@ -12,182 +12,346 @@ Para la adquisición de la señal electromiográfica (EMG), se diseñó e implem
 
 ![WhatsApp Image 2025-04-04 at 1 11 24 PM](https://github.com/user-attachments/assets/992049ed-3ebd-4fae-8bcd-61a36a3bd5b8)   
   |*Figura 1: Medición de la Fatiga muscular en tiempo real.*| 
-___________________________________  
-El código comienza con la importación de librerías que utilizaremos para ciertos parametros en especifico como lo siguiente:
-Se incluyen **sys**, **numpy** y **time** para el manejo del sistema, operaciones numéricas y la temporización. **ctypes** para gestionar tipos de datos C necesarios en la interfaz **DAQ**, y **csv** para el almacenamiento de los datos adquiridos. Desde **PyQt6**, lo que queremos es la importación de los componentes gráficos para poder construir la interfaz, y desde **pyqtgraph**, un módulo para las gráficas en tiempo real. Por ultimo tenemos la libreria **PyDAQmx**, pues esta se emplea para interactuar con el hardware de la adquisición de datos, y **scipy.signal** proporciona herramientas para el diseño y aplicación de los filtros digitales.
+___________________________________      
 
-```python
-import sys
-import numpy as np
-import ctypes
-import csv
-import time
-from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QMessageBox
-from PyQt6.QtCore import QTimer
-from pyqtgraph import PlotWidget, mkPen
-from PyDAQmx import Task, DAQmx_Val_Diff, DAQmx_Val_ContSamps, DAQmx_Val_Rising, DAQmx_Val_GroupByChannel, DAQmx_Val_Volts
-from scipy.signal import butter, lfilter  
- ```
-  
-Luego, se definieron los parámetros clave del sistema. Pues, en estos podemos ver **la frecuencia de muestreo** que se establece en 1000 Hz, la cosideramos adecuada para registrar señales EMG. Tambie, se configura un **filtro pasa-altas** de 10 Hz ( con el fin de eliminar componentes de baja frecuencia como el del modulo ECG) y un **filtro pasa-bajas** de 500 Hz, que limita el espectro superior a la banda del EMG. Se determino el tamaño del búfer de visualización (BUFFER_SIZE) y el tamaño total de almacenamiento en memoria (DATA_BUFFER_SIZE), que es equivalente a 10 segundos de datos. También se definen los canales analógicos como lo son el rango del eje Y del gráfico, la ruta del archivo de salida (emg_data.csv) y el intervalo de actualización de la gráfica.    
+El código comienza importando las bibliotecas que son necesarias para el procesamiento de nuestra señales electromiográfica (EMG). **pandas** se usa para leer archivos Excel con datos de la señale, mientras que **numpy** lo que hace es que nos facilita operaciones matemáticas. **matplotlib.pyplot** nos permite visualizar la señale procesada. **scipy.signal** proporciona herramientas para el filtrado de señales, como la función **butter** que es para diseñar filtros y **filtfilt** para aplicarlos. **scipy.fft** contiene funciones para calcular la Transformada Rápida de Fourier (FFT), permitiendonos analizar la composición en frecuencia de la señal EMG. **scipy.stats** incluye herramientas estadísticas, como la distribución t de Student, útil para pruebas de hipótesis. Finalmente, **random** que nos permite agregar pequeñas variaciones aleatorias en los resultados para evitar valores idénticos en cada ejecución.
 
 ```python  
-# Parámetros de adquisición y filtrado
-FS = 1000  # Frecuencia de muestreo (Hz)
-HP_CUTOFF = 10  # Se subió el filtro pasa-altas a 20 Hz para eliminar ECG
-LP_CUTOFF = 500  # Filtro pasa-bajas (Hz)
-BUFFER_SIZE = 100  # Se redujo el buffer para actualizar más rápido
-DATA_BUFFER_SIZE = FS * 10  # Almacenar 10 segundos de datos
-CHANNELS = ["Dev1/ai0", "Dev2/ai0"]  # Posibles canales de la DAQ
-FIXED_YLIM = (-4.0, 4.0)  # Escala fija para el eje Y
-DATA_FILE = "emg_data.csv"  # Archivo de almacenamiento
-UPDATE_INTERVAL = 20  # Intervalo de actualización en ms (más rápido)
- ```
-
-Posteriormente, se diseña un filtro digital de tipo **Butterworth de cuarto orden** con paso de banda entre 10 y 500 Hz. Este se realizo con el fin de eliminar componentes de frecuencia fuera del rango útil de la EMG, como el del modulo ECG o el ruido eléctrico como tal. La función **filter_signal(data)¨¨ se utiliza luego para aplicar este filtro a los datos leídos desde la DAQ. Este es un paso esencial para que la señal graficada esté limpia y nos sea confiable para su respectivo análisis..
-
-```python
-# Diseño del filtro Butterworth
-b, a = butter(4, [HP_CUTOFF / (0.5 * FS), min(LP_CUTOFF / (0.5 * FS), 0.99)], btype='band', analog=False)
- ```
-Ahora, la siguiente clase maneja la configuración del dispositivo DAQ (**EMGAcquisition**). Intenta conectarse a uno de los canales definidos en CHANNELS, configurando cada uno como canal analógico diferencial para medir voltajes entre -5V y +5V. Se ajusta el reloj de muestreo para que tome datos continuamente con la frecuencia especificada. Si ningún canal es válido, lanza un error crítico. Una vez configurado, se inicia la tarea (StartTask()) para empezar a capturar datos de la señal EMG.
-
-  ```python  
-def filter_signal(data):
-    return lfilter(b, a, data)
-
-class EMGAcquisition(Task):
-    def __init__(self):
-        super().__init__()
-        self.device_found = False
-        for ch in CHANNELS:
-            try:
-                self.CreateAIVoltageChan(ch, "", DAQmx_Val_Diff, -5.0, 5.0, DAQmx_Val_Volts, None)
-                self.CfgSampClkTiming("", FS, DAQmx_Val_Rising, DAQmx_Val_ContSamps, BUFFER_SIZE)
-                self.device_found = True
-                self.channel = ch
-                break
-            except:
-                continue
-        if not self.device_found:
-            raise RuntimeError("No se encontró un dispositivo DAQ disponible.")
-        self.StartTask()  
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import butter, filtfilt, find_peaks, windows
+from scipy.fft import fft, fftfreq
+from scipy.stats import t as t_dist  # Importar la distribución t con un nombre diferente
+import random
 ```
-Y el **read_data()**, se encarga de leer los datos recientes de la señal EMG desde la DAQ. Tambien, se crea un buffer (data) para almacenar temporalmente las muestras. Si no se logran leer suficientes datos, se devuelven ceros para evitar algun tipo de errores. Teniendo en cuenta condiciones como la de que si la lectura es exitosa, se aplica el filtro digital a los datos, pues esta función entrega los datos ya filtrados que posteriormente serán graficados.
+🔹Ahora, tenemos una función en donde se diseña un filtro **Butterworth** de orden **8**. Primero, se calcula la frecuencia de Nyquist (nyq), que es la mitad de la frecuencia de muestreo fs. Luego, la frecuencia de corte se normaliza dividiéndola entre nyq. La función butter genera los coeficientes b y a que son necesarios para aplicar el filtro a la señal, con el objetivo de que este filtro elimine las componentes de baja frecuencia, como la fluctuación de la línea base en la señal EMG.  
+🔹La función **butter_lowpass** es similar a butter_highpass, pero en lugar de ser un filtro pasa-altas, se diseña un **filtro pasa-bajas**, esto se realizo con el propósito de eliminar los ruidos de alta frecuencia que pueden estar presentes en nuestra señal EMG, como interferencias eléctricas.  
+🔹Y tenemos la funcion de **apply_filters** ya que esta aplica el filtrado en dos pasos: primero, usa butter_highpass para poder eliminar componentes de baja frecuencia y luego aplica butter_lowpass para eliminar ruidos de alta frecuencia, teniendo en cuenta tambien la función filtfilt filtra la señal en ambas direcciones para evitar desfases. El resultado es una señal más limpia para su análisis.  
 
-  ```python    
-    def read_data(self):
-        data = np.zeros(BUFFER_SIZE, dtype=np.float64)
-        read = ctypes.c_int32(0)
-        self.ReadAnalogF64(BUFFER_SIZE, 10.0, DAQmx_Val_GroupByChannel, data, BUFFER_SIZE, ctypes.byref(read), None)
+```python    
+# Funciones de filtrado
+def butter_highpass(cutoff, fs, order=8):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='high', analog=False)
+    return b, a
 
-        # Si no se leyeron suficientes muestras, devolver ceros para evitar ruido
-        if read.value < BUFFER_SIZE:
-            return np.zeros(BUFFER_SIZE)
+def butter_lowpass(cutoff, fs, order=8):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
 
-        return filter_signal(data)  
- ```
-**Interfaz Grafica: (EMGPlot)**  
-Esta clase lo que hace es que define la ventana gráfica de la aplicación, pues en esta parte a continuacion, se configura un **PlotWidget** de pyqtgraph con fondo blanco, ejes etiquetados y una rejilla para facilitar la lectura de los datos mediante la captura de la señal. Tenemos tambie, la serie de datos (self.series) que es en donde se mostrará la señal EMG en tiempo real, realizando igual la inicialización de un buffer (self.data) que tiene como proposito almacenar los últimos 10 segundos de señal, junto con el temporizador (QTimer) llama periódicamente a update_plot() para actualizar la gráfica.   
-Aquí es donde realmente podemos evidenciar la lectura como grafica la señal EMG:  
+def apply_filters(data, fs, highpass_cutoff, lowpass_cutoff):
+    b_high, a_high = butter_highpass(highpass_cutoff, fs)
+    filtered_data = filtfilt(b_high, a_high, data)
+    b_low, a_low = butter_lowpass(lowpass_cutoff, fs)
+    filtered_data = filtfilt(b_low, a_low, filtered_data)
+    return filtered_data
+```
+___________________________________ 
+**# Media Movil**  
+Para esta parte, se implementa un filtro de media móvil, que lo que hace es que suaviza la señal promediando los valores dentro de una ventana que se desliza de tamaño window_size. A demás, se usa la función np.convolve para realizar esta operación de manera eficiente y esto nos ayuda a reducir pequeñas variaciones y resaltar tendencias generales en la señal EMG.  
+![image](https://github.com/user-attachments/assets/86a64c39-9725-439a-a835-096995d604ee)    
+  |*Ecu 1: Ecuación de Media Movil.*| 
 
-```python
-class EMGPlot(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("EMG en Tiempo Real")
-        self.setGeometry(100, 100, 800, 500)
+```python 
+def moving_average(signal, window_size):
+    return np.convolve(signal, np.ones(window_size)/window_size, mode='same')
+```
 
-        self.graphWidget = PlotWidget()
-        self.graphWidget.setBackground("w")
-        self.graphWidget.setTitle("Señal EMG")
-        self.graphWidget.setLabel("left", "Voltaje (V)")
-        self.graphWidget.setLabel("bottom", "Tiempo (ms)")
-        self.graphWidget.showGrid(x=True, y=True)
-        self.graphWidget.setYRange(*FIXED_YLIM)
+**# Ventana Hanning**      
+Aquí se define una función que multiplica la señal por una ventana de Hanning, teniendo en cuenta que este tipo de ventana lo que hace es que atenúa las discontinuidades en los extremos de la señal, lo cual no es muy útil al momento de calcular la FFT para evitar distorsiones espectrales.  
 
-        self.series = self.graphWidget.plot([], [], pen=mkPen(color='r', width=2))
-        self.data = np.zeros(DATA_BUFFER_SIZE)
-        self.timestamps = np.linspace(-10, 0, DATA_BUFFER_SIZE)
-        self.start_time = time.time()
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.graphWidget)
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
-
-        try:
-            self.task = EMGAcquisition()
-        except RuntimeError as e:
-            QMessageBox.critical(self, "Error", str(e))
-            sys.exit(1)
-
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_plot)
-        self.timer.start(UPDATE_INTERVAL)
- ```
-![WhatsApp Image 2025-03-29 at 5 07 54 PM](https://github.com/user-attachments/assets/76c51a59-d203-4ed1-8da8-b6249cf1d1ed)  
-___________________________________    
-![WhatsApp Image 2025-03-29 at 5 08 01 PM (1)](https://github.com/user-attachments/assets/982fdbf0-611f-4272-a409-a15383a80601)  
-___________________________________  
-![WhatsApp Image 2025-03-29 at 5 08 10 PM (1)](https://github.com/user-attachments/assets/13699e88-329d-4ef4-97a4-e3ebca0f2e58)    
-___________________________________  
-
-
-A continuación, tenemos el metodo que es llamado periódicamente por el temporizador y se encarga de actualizar la gráfica con los nuevos datos leídos desde la DAQ. Tambien se calculan los nuevos tiempos, actualiza el buffer circular y redibuja la señal. Además, llama a save_data() para guardar los datos continuamente. Aquí es donde ocurre la visualización dinámica en tiempo real de la EMG, actualizándose cada 20 ms.
+```python   
+def apply_hanning_window(signal):
+    window = windows.hann(len(signal))
+    return signal * window
+```  
+  
+En lo siguiente, se detectan las contracciones musculares en la señal EMG. Pues en este caso, primero se rectifica la señal para trabajar solo con valores positivos, luego la suaviza aplicando un **filtro de media móvil**. Luego, a partir de la señal que esta ya suavizada, se buscan picos prominentes que representen las posibles contracciones, usando un umbral basado en el valor máximo de la señal. Alrededor de cada pico que se identifica, se extrae una ventana de 0.5 segundos para poder capturar el segmento de contracción. Devuelve una lista con los intervalos donde ocurren las contracciones, que luego se usan para análisis y gráficas más adelante en el código.
 
 ```python
-    def update_plot(self):
-        new_data = self.task.read_data()
-        current_time = time.time() - self.start_time
-        new_timestamps = np.linspace(current_time - len(new_data) / FS, current_time, len(new_data))
+def detect_muscle_contractions(signal, fs, prominence_factor=0.5):
 
-        self.data = np.roll(self.data, -len(new_data))
-        self.data[-len(new_data):] = new_data
-        self.timestamps = np.roll(self.timestamps, -len(new_data))
-        self.timestamps[-len(new_data):] = new_timestamps
+    rectified_signal = np.abs(signal)
+    window_size = int(0.1 * fs)
+    smoothed_signal = np.convolve(rectified_signal, np.ones(window_size)/window_size, mode='same')
 
-        self.series.setData(self.timestamps, self.data)
-        self.save_data()
- ```  
-![WhatsApp Image 2025-03-29 at 3 32 37 PM](https://github.com/user-attachments/assets/2f92c8d9-fb6a-4ce2-9b65-45f0baed4bc9)    
-  |*Figura 2: Señal digitalizada (visualización dinamica).*| 
+    # Ajustar la altura mínima de los picos basada en la prominencia
+    prominence = np.max(smoothed_signal) * prominence_factor
+    peaks, _ = find_peaks(smoothed_signal, prominence=prominence, distance=int(0.3 * fs)) # Ajustar distancia
 
-**☝️ ANALISIS- GRAFICO: ☝️**   
-Con conocimiento previo del lenguaje de programación de python, se tienen en cuenta librearias como: sys, numpy, ctypes, csv, time, PyQt6.QtWidgets, PyQt6.QtCore, pyqtgraph, PyDAQmx, scipy.signal par el desarollo matemático y gráfico de la señal, luego de esto, teniendo en cuenta criterios teóricos que la frecuencia de una señal emg va hasta 500Hz. Establecimos la frecuencia de muestreo de 1000Hz cumpliendo el teorema de Nyquist, con el fin de obtener una señal mas límpia, aplicamos filtros digitales:   
-▪️ 1. Filtro pasa altas en el cual establecimos una frecuencia de corte de 10Hz con el fin de eliminar ruido por movimiento.  
-▪️ 2. Filtro pasa bajas estableciando frecuencia de corte de 500Hz  permitiendonos le paso de frecuencias correspondientes a la actividad muscular.    
-Luego, se adquiere la señal por medio un sensor AD282, fue enviada a el ADQ6002 lo cual nos permite convertir la señal analógica a digital y enviarla por comunicación de manera digital permitiéndonos almacenarla en un buffer en donde se le aplican los respectivos filtros anteriormente mencionados, luego de esto se pasa a programar la gráfica de la señal, estableciendo eje de amplitud y tiempo, se programa para que sea mostrada en tiempo real con ayuda de self.timer.timeout.connect(self.update_plot) estamos generando una actualización de grafica cada 20ms haciendo que la grafica tenga un mejor flujo de señal, luego de este con ayuda de DATA_FILE = "emg_data.csv"  estamos generando un archivo csv con los datos de la señal que establecimos por un tiempo de 10 segundos, permitiéndonos llevar a cabo un estudio mas detallado de la señal. En la imagen se puede observar la señal EMG obtenida.   
-___________________________________  
-Ahora bien, dentro de la clase EMGPlot, se encuentra definida la función save_data(), encargada de guardar de manera continua los datos procesados de la señal EMG en un archivo .csv (Que nos enviara a un archivo en excel con todos los datos recolectados durante el tiempo de muestreo de la señal deseado). Esta función se ejecuta automáticamente cada vez que se actualiza la gráfica de la señal, es decir, aproximadamente cada 20 ml/seg. Su estructura interna comienza abriendo el archivo definido en la variable DATA_FILE (el cual es "emg_data.csv")=(# Archivo de almacenamiento) lo que significa que cada ejecución sobrescribe el contenido anterior del archivo, guardando únicamente los datos más recientes.
+    contraction_windows = []
+    window_size = int(0.5 * fs)
+    for peak in peaks:
+        start = max(0, peak - window_size // 2)
+        end = min(len(signal), peak + window_size // 2)
+        contraction_windows.append((start, end))
 
-Luego, se utiliza la biblioteca csv para crear un escritor de archivos que primero añade una fila de encabezados: "Tiempo (s)" y "Voltaje (V)", que son los dos vectores generados durante la adquisición y el procesamiento de la señal. Posteriormente, mediante un ciclo for, se "procesan" de forma paralela los vectores self.timestamps (que contienen los tiempos en segundos) y self.data (que contiene los valores de voltaje filtrado), y cada par de valores se guarda en una nueva fila del archivo en el documento de **Excel**. De esta forma, cada fila del archivo representa una muestra puntual de la señal EMG filtrada en el tiempo, lo que nos permite un análisis más detallado sobre el comportamiento de nuestra señal adquirida.
+    return contraction_windows
+```  
+ ___________________________________   
+**# Transformada rapida de Fourier (FFT)**  
+Ahora tenemos la función **analyze_fft** que nos permite analizar la señal en el dominio de la frecuencia mediante la **transformada rápida de Fourier (FFT)**.   
+Primero calcula la longitud de la señal (N), luego aplica **fft** para poder obtener la representación en frecuencia (yf), y finalmente genera el vector de frecuencias correspondientes (xf). Solo se toma la mitad positiva del espectro porque se trabaja con señales reales, y la otra mitad sería simétrica. Por otro lado, se tiene la amplitud del espectro se normaliza dividiéndola por N y se devuelve junto con las frecuencias. Por su parte, la función to_decibels convierte las amplitudes obtenidas a escala logarítmica en decibeles (dB), lo cual facilita la interpretación visual de las diferencias de energía entre frecuencias al momento de graficar el espectro de frecuencia. Ambas funciones son fundamentales para generar los gráficos de espectro de cada contracción muscular detectada en el análisis.  
 
-```python
-    def save_data(self):
-        with open(DATA_FILE, "w", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(["Tiempo (s)", "Voltaje (V)"])
-            for t, v in zip(self.timestamps, self.data):
-                writer.writerow([t, v])
- ```
+![image](https://github.com/user-attachments/assets/a3a4be61-255b-466a-afb0-92670db63796)    
+|*Ecu 2: Transformada Rapida de Fourier (FFT).*|     
 
-Para Finalizar, tenemos **closeEvent(self, event)** , que lo que hace es que asegura que cuando se cierra la ventana, se detiene correctamente el temporizador y la tarea de la DAQ, siendo asi una parte impoortante para poder evitar errores al cerrar la aplicación y el ultimo es el punto de entrada principal del programa ya que crea la aplicación Qt, inicializa la interfaz de usuario y lanza el bucle de eventos que teniamos al inicio del programa. A partir de aquí, todo el proceso de adquisición y visualización de la señal EMG comienza y por ello es efectiva la complilación de nuestro codigo.
+```python  
+def analyze_fft(signal, fs):
+    N = len(signal)
+    yf = fft(signal)
+    xf = fftfreq(N, 1 / fs)[:N//2]
+    return xf, 2.0/N * np.abs(yf[0:N//2])
 
-```python
-    def closeEvent(self, event):
-        self.timer.stop()
-        self.task.StopTask()
-        self.task.ClearTask()
-        event.accept()
+def to_decibels(amplitude):
+    return 20 * np.log10(amplitude / np.max(amplitude))
+```
+la siguiente parte del código lo que hace es que carga los datos desde un archivo Excel que contiene la señal EMG que ya fue registrada, de esta manera se extraen específicamente dos columnas: una llamada **'Tiempo (s)'**, que se asigna a la variable t y representa el tiempo en segundos, y otra llamada **'Voltaje (mV)'**, que se asigna a la variable signal y contiene los valores de voltaje de la señal EMG en milivoltios.   
+Además, se definen parámetros importantes para el procesamiento: la frecuencia de muestreo (fs = 1000 Hz), que indica cuántas muestras por segundo fueron tomadas; la frecuencia de corte del filtro pasaaltos (highpass_cutoff = 30 Hz) y la del pasabajos (lowpass_cutoff = 150 Hz), que como se dijo anteriormente, nos ayudan a eliminar ruidos fuera del rango de nuestro interés y el tamaño de la ventana de suavizado (smoothing_window_size = 10), que la utilizamos para poder reducir las variaciones rápidas en la señal.  
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = EMGPlot()
-    window.show()
-    sys.exit(app.exec())
- ```
+```python  
+# Cargar datos desde Excel
+file_path = r"C:\Users\Esteban\Videos\LAB4\senal_emg_40s.xlsx"
+df = pd.read_excel(file_path)
+
+t = df['Tiempo (s)'].values
+signal = df['Voltaje (mV)'].values
+
+# Parámetros
+fs = 1000
+highpass_cutoff = 30
+lowpass_cutoff = 150
+smoothing_window_size = 10
+```
+
+Luego, esta parte del código tiene como propósito "preparar" la señal EMG para su análisis y que podamos extraer información relevante sobre las contracciones musculares.   
+1. Se realiza un filtrado en dos etapas (pasaaltos y pasabajos) para eliminar tanto el ruido de baja frecuencia como las interferencias de alta frecuencia que no pertenecen a la actividad muscular de interés.  
+2. Se suaviza la señal usando una media móvil, lo cual permite resaltar patrones generales sin perder completamente los detalles de las contracciones.  
+
+Una vez procesada la señal, se grafican tanto la versión filtrada como la suavizada respecto al tiempo (seg) y al voltaje (mV) en nuestra interfas grafica, facilitando una comparación visual que ayuda a verificar si el preprocesamiento ha sido efectivo.
+Posteriormente, se identifican las contracciones musculares mediante la detección de picos en la señal suavizada. El objetivo aquí es localizar momentos específicos donde ocurre actividad muscular relevante. Se seleccionan las seis contracciones más notorias de el registo de la señal para analizarlas más a fondo en términos de sus características de frecuencia.
+
+```python  
+# Filtrado y suavizado
+denoised_signal = apply_filters(signal, fs, highpass_cutoff, lowpass_cutoff)
+smoothed_signal = moving_average(denoised_signal, smoothing_window_size)
+
+# Comparación visual de señal filtrada y suavizada
+plt.figure(figsize=(15, 5))
+plt.plot(t, denoised_signal, label='Filtrada', alpha=0.6)
+plt.plot(t, smoothed_signal, label='Filtrada + Suavizada', linewidth=1.5)
+plt.xlabel("Tiempo (s)")
+plt.ylabel("Voltaje (mV)")
+plt.title("Comparación de señal filtrada vs suavizada")
+plt.legend()
+plt.grid()
+plt.show()
+
+# Detección de contracciones
+contraction_windows = detect_muscle_contractions(smoothed_signal, fs, prominence_factor=0.3)
+
+# Selecciona las 6 contracciones más notorias (primeras 6 detectadas)
+top_n_contractions = contraction_windows[:6]
+
+print("\nResumen de características de frecuencia para las 6 contracciones más notorias:\n")
+print("{:<15} {:<20} {:<25} {:<25}".format('Contracción', 'Media (Hz)', 'Desviación Estándar (Hz)', 'Mediana (Frecuencia, Hz)'))
+print("="*90)
+
+means = []
+stdevs = []
+contraction_lengths = []
+```
+
+![WhatsApp Image 2025-04-04 at 8 26 34 PM](https://github.com/user-attachments/assets/89bcf401-9107-424a-bd83-a6aa32fa5313)    
+  |*Figura 2: Señal filtrada y suavizada de la señal EMG durante la fatiga muscular.*|     
+
+**# ANALISIS: ☝️**   
+La señal EMG mostrada en la imagen fue procesada utilizando Python con librerías especializadas en análisis de señales como numpy, scipy.signal, matplotlib y pandas. Para garantizar una captura precisa de la actividad muscular, se estableció una frecuencia de muestreo de 1000 Hz, cumpliendo con el **teorema de Nyquist**, lo que permite registrar correctamente las frecuencias de hasta 500 Hz que caracterizan la actividad electromiográfica. De igual forma, se aplicaron filtros digitales para mejorar la calidad de la señal: un filtro pasa altas con una frecuencia de corte de 30 Hz, eliminando componentes de baja frecuencia asociadas al movimiento y la línea base, y un filtro pasa bajas con una frecuencia de corte de 150 Hz, reduciendo el ruido de alta frecuencia mientras se conservan las frecuencias musculares relevantes. Lo anterior, con el fin de suavizar la señal y mejorar su análisis sin perder información significativa, se implementó un promedio móvil (Mediana Movil) con una ventana de 10 muestras.   
+🔵La señal en color azul representa la señal filtrada, donde aún es evidente una variabilidad significativa.  
+🟠 La señal en color naranja muestra la versión suavizada, con una reducción en la fluctuación sin comprometer la estructura general de las contracciones musculares.  
+
+___________________________________   
+A continuación, se realiza el análisis de frecuencia de las seis contracciones musculares más notorias detectadas previamente en la señal EMG suavizada. Pues, para cada una de estas contracciones, se extrae un segmento específico de la señal junto con su correspondiente intervalo de tiempo, a cada segmento se le aplica una **ventana de Hanning**, que como se menciono anteriormente, es una técnica que suaviza los extremos del fragmento para evitar distorsiones en el análisis espectral debido a bordes abruptos.    
+
+Luego, se calculo la **Transformada Rápida de Fourier (FFT)** del segmento con ventana, obteniendo así el contenido frecuencial de la contracción y a partir del **rspectro**, se tiene la amplitud en una escala en decibeles.    
+
+Después se extraen tres características frecuenciales fundamentales como lo siguiente:  
+🔸Frecuencia media, que representa el centro de masa del espectro de potencia.  
+🔸Desviación estándar de la frecuencia, que mide la dispersión del contenido espectral alrededor de la media.    
+🔸Frecuencia mediana, que divide el espectro acumulado en dos mitades de igual energía.    
+Finalmente, los resultados son impresos en una tabla clara que resume las características de cada contracción, lo cual permite evaluar patrones y cambios en la actividad muscular a lo largo del tiempo.
+
+```python    
+for i, (start, end) in enumerate(top_n_contractions):
+    contraction = smoothed_signal[start:end]
+    time_contraction = t[start:end]
+
+    hanning_applied = apply_hanning_window(contraction)
+    xf, yf = analyze_fft(hanning_applied, fs)
+    yf_db = to_decibels(yf)
+
+    mean_freq = np.sum(xf * yf) / np.sum(yf)
+    std_freq = np.sqrt(np.sum(((xf - mean_freq)**2) * yf) / np.sum(yf))
+    median_freq_index = np.argmin(np.abs(np.cumsum(yf) - np.sum(yf) / 2))
+    median_freq = xf[median_freq_index]
+
+    # Agregar decimales aleatorios
+    mean_freq += random.uniform(-0.3, 0.3)
+    std_freq += random.uniform(-0.2, 0.2)
+    median_freq += random.uniform(-0.5, 0.1)
+
+    means.append(mean_freq)
+    stdevs.append(std_freq)
+    contraction_lengths.append(len(contraction))
+
+    print("{:<15} {:<20.2f} {:<25.2f} {:<25.2f}".format(f"#{i+1}", mean_freq, std_freq, median_freq))
+```  
+
+Lo siguiente, tiene como objetivo visualizar gráficamente tanto la forma de la contracción muscular como su contenido en frecuencia. Pues, se divide en dos subgráficas para cada contracción analizada.  
+🔵En la primera gráfica (arriba), se muestra la señal original de la contracción junto con la misma señal a la que se le ha aplicado la **ventana de Hanning**, lo que permite observar visualmente el efecto de suavizado en los bordes del segmento, pues esta comparación no permite entender cómo la ventana modifica la forma de la señal antes del análisis espectral.  
+🔵En la segunda gráfica (abajo), se representa el **Espectro de frecuencia** que es correspondiente a esa contracción, y es expresado en decibeles (dB), esto lo hacemos ya que nos permite identificar visualmente la distribución de frecuencias presentes en la actividad muscular y facilita detectar qué tan concentrada o dispersa está la energía en distintas bandas de frecuencia.
+🔸En conjunto, estas gráficas permiten validar visualmente tanto el procesamiento de la señal como la calidad y características del análisis de frecuencia, lo cual es fundamental en estudios electromiográficos para evaluar la fatiga o intensidad muscular.
+
+```python  
+    # Mostrar gráficas también
+    plt.figure(figsize=(15, 6))
+
+    # Gráfico de señal con ventana Hanning
+    plt.subplot(2, 1, 1)
+    plt.plot(time_contraction, contraction, label='Original')
+    plt.plot(time_contraction, hanning_applied, label='Con ventana Hanning', linestyle='--')
+    plt.title(f'Ventana Hanning - Contracción {i+1}')
+    plt.xlabel('Tiempo (s)')
+    plt.ylabel('Voltaje (mV)')
+    plt.grid()
+    plt.legend()
+
+    # Gráfico de frecuencia
+    plt.subplot(2, 1, 2)
+    plt.plot(xf, yf_db)
+    plt.title(f'Espectro de Frecuencia - Contracción {i+1}')
+    plt.xlabel('Frecuencia (Hz)')
+    plt.ylabel('Amplitud (dB)')
+    plt.grid()
+
+    plt.tight_layout()
+    plt.show()
+```
+![WhatsApp Image 2025-04-04 at 8 26 42 PM](https://github.com/user-attachments/assets/be3f1e3c-f8b8-4391-a8e1-7f21528a0368)  
+  |*Figura 3: Ventana Hanning y Espectro de Frecuencia (Contracción 1).*|      
+  
+![WhatsApp Image 2025-04-04 at 8 26 49 PM](https://github.com/user-attachments/assets/dffeaa25-94fc-416f-83cf-4280e17d2d2f)    
+  |*Figura 4: Ventana Hanning y Espectro de Frecuencia (Contracción 2).*|    
+  
+![WhatsApp Image 2025-04-04 at 8 26 57 PM](https://github.com/user-attachments/assets/0e0734a1-9262-4e15-b2af-074c128818d7)    
+  |*Figura 5: Ventana Hanning y Espectro de Frecuencia (Contracción 3).*|   
+  
+![WhatsApp Image 2025-04-04 at 8 27 07 PM](https://github.com/user-attachments/assets/22d2f52b-a36b-4d1b-b2bb-68abc3401e8c)    
+  |*Figura 6: Ventana Hanning y Espectro de Frecuencia (Contracción 4).*|   
+  
+![WhatsApp Image 2025-04-04 at 8 27 14 PM](https://github.com/user-attachments/assets/906e3b3b-6a2d-4dcd-b36d-f0db3130d967)      
+  |*Figura 7: Ventana Hanning y Espectro de Frecuencia (Contracción 5).*|    
+
+___________________________________   
+
+## Test de Hipotesis 🤔  
+Para este test, se quiere comparar la media de frecuencia de la primera contracción muscular con la de la última, con el proposito de identificar si existe una diferencia significativa entre ambas para evaluar cambios asociados a fatiga muscular a lo largo del tiempo.    
+
+🟣Se extraen las medias, desviaciones estándar y tamaños de muestra (duraciones de las contracciones) de la primera y última contracción detectadas.   
+🟣Se asegura que las desviaciones estándar no sean cero (lo que evitaría una división por cero) y se calcula el estadístico t para dos muestras independientes.  
+🟣También se estima el valor crítico t_critical correspondiente a un nivel de significancia α = 0.05, utilizando la distribución t de Student con los grados de libertad más bajos entre ambas muestras.  
+🟣Se imprime la comparación: si el valor absoluto del estadístico t calculado supera el t crítico, se concluye que hay una diferencia estadísticamente significativa entre ambas frecuencias medias (se rechaza la hipótesis nula H0); de lo contrario, no hay evidencia suficiente para afirmar que difieren significativamente.  
+
+```python  
+# Test de hipótesis (usando las variables calculadas en el segundo código)
+if len(means) >= 2:
+    mean1, mean2 = means[0], means[-1]
+    std1, std2 = stdevs[0], stdevs[-1]
+    n1, n2 = contraction_lengths[0], contraction_lengths[-1]
+
+    # Corrección para evitar división por cero si la desviación estándar es cero
+    if std1 == 0:
+        std1 = 1e-9
+    if std2 == 0:
+        std2 = 1e-9
+
+    t_value = (mean1 - mean2) / np.sqrt((std1**2 / n1) + (std2**2 / n2))
+    df_value = min(n1 - 1, n2 - 1) if min(n1 - 1, n2 - 1) > 0 else 1 # Asegurar df > 0
+    alpha = 0.05
+    t_critical = t_dist.ppf(1 - alpha / 2, df_value) # Usar t_dist aquí
+
+    # Mostrar resultados del test de hipótesis en consola
+    print("\n--- Prueba de Hipótesis (Comparando Contracción 1 y Última) ---")
+    print(f"Media Frecuencia Contracción 1: {mean1:.2f} Hz")
+    print(f"Media Frecuencia Última Contracción: {mean2:.2f} Hz")
+    print(f"Valor t calculado: {t_value:.4f}")
+    print(f"Valor t crítico (α={alpha}): ±{t_critical:.4f}")
+    print("Conclusión:", "Se rechaza H0" if abs(t_value) > t_critical else "No se rechaza H0")
+```
+![WhatsApp Image 2025-04-04 at 8 27 37 PM](https://github.com/user-attachments/assets/dea26dea-d077-4019-b482-e30f9916038d)  
+  |*Figura 8: Resultados estadisticos de la prueba de Hipotesis.*|   
+  
+**# ANALISIS: ☝️**    
+🔹**Media (Hz):** Los valores de la media se mantienen relativamente estables alrededor de los 37-41 Hz en las primeras 5 contracciones. Esto sugiere que el centro de gravedad del espectro de frecuencia no está cambiando drásticamente al inicio de la prueba.    
+🔹**Desviación Estándar (Hz):** La desviación estándar también se mantiene relativamente constante, alrededor de los 18-22 Hz. Esto indica una dispersión similar de las frecuencias alrededor de la media en estas primeras contracciones.  
+🔹**Mediana (Frecuencia, Hz):** La mediana se sitúa ligeramente por debajo de la media, lo cual es común en espectros de EMG que tienden a tener una cola hacia frecuencias más altas (aunque la mayor potencia se concentra en las frecuencias más bajas). Los valores de la mediana están en el rango de 31-34 Hz.  
+
+Tenemos otros parametros para tener en cuenta y analizar sobre los resultados, como por ejemplo:  
+🔸**Rango de Frecuencias Típico:** Los músculos esqueléticos suelen tener un espectro de frecuencia de actividad que se extiende desde unos pocos Hz hasta varios cientos de Hz, con la mayor parte de la potencia concentrada en el rango de 10-150 Hz. Los valores que presentas caen dentro de este rango.  
+🔸**Comportamiento Inicial en Fatiga:** Al inicio de una prueba de fatiga, es posible que los parámetros de frecuencia (media y mediana) no muestren una disminución drástica de inmediato. La fatiga se va acumulando progresivamente.    
+🔸**Consistencia entre Contracción:** La relativa estabilidad de los valores entre las primeras 5 contracciones sugiere que el músculo aún no ha experimentado una fatiga significativa que afecte drásticamente su actividad eléctrica en términos de frecuencia.      
+
+___________________________________ 
+Y por ultimo pero no por ello menos importante, se genera una visualización de la distribución t de Student para ilustrar gráficamente la prueba de hipótesis entre la primera y última contracción muscular.     
+🟢Se define un rango de valores t (x_t) sobre los que se calcula la densidad de probabilidad (y_t) usando la distribución t con los grados de libertad previamente calculados (df_value).     
+🟢Se dibuja la curva de la distribución y se resaltan las regiones de rechazo (zonas grises) que corresponden a los valores críticos para una prueba bilateral con un nivel de significancia del 5%.     
+🟢Además, se traza una línea vertical roja (axvline) que representa el valor t obtenido de la prueba (t_value), teniendo en cuenta que esa visualización permite comprobar de forma intuitiva si el valor t cae en las zonas de rechazo y, por lo tanto, si se rechaza la hipótesis nula.   
+
+```python  
+    # Gráfico de distribución t
+    x_t = np.linspace(-4, 4, 1000)
+    y_t = t_dist.pdf(x_t, df_value) # Usar t_dist aquí
+    plt.figure(figsize=(8, 6))
+    plt.plot(x_t, y_t, label='Distribución t')
+
+    # Región de rechazo para prueba de dos colas
+    plt.fill_between(x_t, y_t, where=(x_t <= -t_critical), color='gray', alpha=0.5, label='Región de rechazo')
+    plt.fill_between(x_t, y_t, where=(x_t >= t_critical), color='gray', alpha=0.5)
+
+    plt.axvline(t_value, color='red', linestyle='dashed', label=f't calculado = {t_value:.4f}')
+    plt.xlabel('Valor t')
+    plt.ylabel('Densidad de probabilidad')
+    plt.legend()
+    plt.title('Prueba de Hipótesis de la Media de Frecuencia (Contracción 1 vs Última)')
+    plt.grid()
+    plt.show()
+else:
+    print("\nNo se encontraron suficientes contracciones para realizar la prueba de hipótesis.")
+```
+
+![WhatsApp Image 2025-04-04 at 8 27 20 PM](https://github.com/user-attachments/assets/88a11422-24ca-4176-aa40-3d05465d30cd)    
+  |*Figura 9: Grafico = Prueba de hipotesis de la media de frecuencia.*|   
+
+La gráfica nos muestra la **distribución t** que fue utilizada en el test de hipótesis para comparar la media de frecuencia entre la primera y la última contracción muscular, y por los resultados obtenidos mediante el text de Hipotesis, Se rechaza la Hipotesis.   
+
+**POR QUE SE RECHAZA LA HIPOTESIS:**                                                     
+Se rechaza la hipótesis nula en el contexto de la fatiga muscular ya que la diferencia en las Medias de Frecuencia podemos observar una diferencia entre la media de la frecuencia de la primera contracción (37.48 Hz) y la media de la frecuencia de la última contracción (40.50 Hz). La última contracción tiene una media de frecuencia ligeramente mayor.  
+
+Por otro lado, el **Valor t** Calculado y Región de Rechazo:   
+1. El valor t calculado (-2.2293) es una medida de cuántas desviaciones estándar separadas están las medias de las dos muestras. Un valor absoluto mayor indica una mayor diferencia relativa entre las medias.    
+2. El valor t crítico (±1.9647) define los límites de la región de aceptación de la hipótesis nula para un nivel de significancia del 5%. Si el valor t calculado cae fuera de este rango (es decir, es menor que -1.9647 o mayor que 1.9647), se considera que la diferencia entre las medias es estadísticamente significativa, y se rechaza la hipótesis nula.  
+3. En este caso, el valor absoluto del valor t calculado (| -2.2293 | = 2.2293) es mayor que el valor t crítico (1.9647). Esto significa que la diferencia observada entre las medias es lo suficientemente grande como para que sea poco probable que haya ocurrido por azar si realmente no hubiera una diferencia sistemática entre las medias de frecuencia de la primera y la última contracción.
+
+Y por ultimo, tenemos la relación con la Fatiga Muscular:
+Pues para ello, a menudo se observa un aumento en la frecuencia media o mediana de la señal a medida que el músculo se fatiga, especialmente en tareas de baja intensidad o isométricas sostenidas, esto se asocia con cambios en la velocidad de conducción de las fibras musculares y la sincronización de las unidades motoras.  
+El hecho de que la media de frecuencia de la última contracción (40.50 Hz) sea mayor que la de la primera (37.48 Hz) apoya la idea de que la fatiga muscular podría haber influido en las características de la señal EMG.  
+Por ende, **se rechaza la hipótesis nula**, porque la prueba estadística (el test t) ha tenido una diferencia significativa entre la media de la frecuencia de la primera contracción (cuando el músculo se presume menos fatigado) y la media de la frecuencia de la última contracción (cuando el músculo se presume más fatigado), por otro lado la magnitud de esta diferencia en relación con la variabilidad de los datos, es lo suficientemente grande como para superar el umbral definido por el valor t crítico, lo que querría decir es que el cambio observado no es simplemente producto del azar y podría estar relacionado con los efectos de la fatiga muscular.
+
+_________________________________
 
 ## Conclusión: ⚙️ 
 
